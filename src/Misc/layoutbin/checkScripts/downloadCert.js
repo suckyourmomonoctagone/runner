@@ -47,6 +47,19 @@ function getPeerCertificateSafely(socket) {
     }
 }
 
+function trackSocketCertificate(socket, saveCert) {
+    if (socket == null || saveCert == null) {
+        return
+    }
+
+    socket.on('secureConnect', () => {
+        saveCert(getPeerCertificateSafely(socket))
+    })
+    socket.on('error', () => {
+        saveCert(getPeerCertificateSafely(socket))
+    })
+}
+
 if (proxyHost === '') {
     let requestSocket
     let requestCert
@@ -70,11 +83,8 @@ if (proxyHost === '') {
     })
     req.on('socket', socket => {
         requestSocket = socket
-        requestSocket.on('secureConnect', () => {
-            requestCert = getPeerCertificateSafely(requestSocket)
-        })
-        requestSocket.on('error', () => {
-            requestCert = getPeerCertificateSafely(requestSocket)
+        trackSocketCertificate(requestSocket, cert => {
+            requestCert = cert
         })
     })
     req.on('error', error => {
@@ -111,6 +121,10 @@ else {
 
         let requestSocket
         let requestCert
+        requestSocket = socket
+        trackSocketCertificate(requestSocket, cert => {
+            requestCert = cert
+        })
         const req = https.request({
             host: hostname,
             port: port,
@@ -131,13 +145,12 @@ else {
         })
 
         req.on('socket', tlsSocket => {
-            requestSocket = tlsSocket
-            requestSocket.on('secureConnect', () => {
-                requestCert = getPeerCertificateSafely(requestSocket)
-            })
-            requestSocket.on('error', () => {
-                requestCert = getPeerCertificateSafely(requestSocket)
-            })
+            if (requestSocket != tlsSocket) {
+                requestSocket = tlsSocket
+                trackSocketCertificate(requestSocket, cert => {
+                    requestCert = cert
+                })
+            }
         })
         req.on('error', err => {
             console.error('error', err)
