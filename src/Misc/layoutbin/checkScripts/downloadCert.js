@@ -17,8 +17,13 @@ function saveCertificateChain(cert) {
 
     let certPEM = ''
     let fingerprints = {}
-    while (cert != null && fingerprints[cert.fingerprint] != '1') {
-        fingerprints[cert.fingerprint] = '1'
+    while (cert != null && cert.raw != null) {
+        const fingerprint = cert.fingerprint || cert.raw.toString('base64')
+        if (fingerprints[fingerprint] == '1') {
+            break
+        }
+        fingerprints[fingerprint] = '1'
+
         certPEM = certPEM + '-----BEGIN CERTIFICATE-----\n'
         let certEncoded = cert.raw.toString('base64')
         for (let i = 0; i < certEncoded.length; i++) {
@@ -28,6 +33,9 @@ function saveCertificateChain(cert) {
             }
         }
         certPEM = certPEM + '\n-----END CERTIFICATE-----\n'
+        if (cert.issuerCertificate === cert) {
+            break
+        }
         cert = cert.issuerCertificate
     }
     console.log(certPEM)
