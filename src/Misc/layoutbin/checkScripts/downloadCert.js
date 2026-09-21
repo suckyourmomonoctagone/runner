@@ -69,7 +69,12 @@ if (proxyHost === '') {
             requestCert = requestSocket.getPeerCertificate(true)
         })
         requestSocket.on('error', () => {
-            requestCert = requestSocket.getPeerCertificate(true)
+            try {
+                requestCert = requestSocket.getPeerCertificate(true)
+            }
+            catch (socketError) {
+                console.error(socketError)
+            }
         })
     })
     req.on('error', error => {
