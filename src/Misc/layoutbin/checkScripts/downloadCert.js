@@ -55,9 +55,6 @@ function trackSocketCertificate(socket, saveCert) {
     socket.once('secureConnect', () => {
         saveCert(getPeerCertificateSafely(socket))
     })
-    socket.once('error', () => {
-        saveCert(getPeerCertificateSafely(socket))
-    })
 }
 
 if (proxyHost === '') {
