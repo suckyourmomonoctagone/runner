@@ -66,7 +66,10 @@ if (proxyHost === '') {
     })
     req.on('error', error => {
         console.error(error)
-        if (requestCert != null) {
+        if (error != null && error.cert != null) {
+            saveCertificateChain(error.cert)
+        }
+        else if (requestCert != null) {
             saveCertificateChain(requestCert)
         }
         else if (requestSocket != null) {
