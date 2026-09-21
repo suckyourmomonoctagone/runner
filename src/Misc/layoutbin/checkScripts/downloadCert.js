@@ -36,6 +36,7 @@ function saveCertificateChain(cert) {
 
 if (proxyHost === '') {
     let requestSocket
+    let requestCert
     const options = {
         hostname: hostname,
         port: port,
@@ -56,10 +57,19 @@ if (proxyHost === '') {
     })
     req.on('socket', socket => {
         requestSocket = socket
+        requestSocket.on('secureConnect', () => {
+            requestCert = requestSocket.getPeerCertificate(true)
+        })
+        requestSocket.on('error', () => {
+            requestCert = requestSocket.getPeerCertificate(true)
+        })
     })
     req.on('error', error => {
         console.error(error)
-        if (requestSocket != null) {
+        if (requestCert != null) {
+            saveCertificateChain(requestCert)
+        }
+        else if (requestSocket != null) {
             saveCertificateChain(requestSocket.getPeerCertificate(true))
         }
     })
