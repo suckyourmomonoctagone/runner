@@ -1,7 +1,6 @@
 const https = require('https')
 const fs = require('fs')
 const http = require('http')
-const tls = require('tls')
 const hostname = process.env['HOSTNAME'] || ''
 const port = process.env['PORT'] || ''
 const path = process.env['PATH'] || ''
@@ -36,6 +35,7 @@ function saveCertificateChain(cert) {
 }
 
 if (proxyHost === '') {
+    let requestSocket
     const options = {
         hostname: hostname,
         port: port,
@@ -54,20 +54,14 @@ if (proxyHost === '') {
             process.stdout.write(d)
         })
     })
+    req.on('socket', socket => {
+        requestSocket = socket
+    })
     req.on('error', error => {
         console.error(error)
-        const recoverySocket = tls.connect({
-            host: hostname,
-            port: port,
-            servername: hostname,
-            rejectUnauthorized: false,
-        }, () => {
-            saveCertificateChain(recoverySocket.getPeerCertificate(true))
-            recoverySocket.end()
-        })
-        recoverySocket.on('error', (recoveryError) => {
-            console.error(recoveryError)
-        })
+        if (requestSocket != null) {
+            saveCertificateChain(requestSocket.getPeerCertificate(true))
+        }
     })
     req.end()
 }
