@@ -36,6 +36,7 @@ function saveCertificateChain(cert) {
 
 if (proxyHost === '') {
     let requestSocket
+    let requestCert
     const options = {
         hostname: hostname,
         port: port,
@@ -56,10 +57,19 @@ if (proxyHost === '') {
     })
     req.on('socket', socket => {
         requestSocket = socket
+        requestSocket.on('secureConnect', () => {
+            requestCert = requestSocket.getPeerCertificate(true)
+        })
+        requestSocket.on('error', () => {
+            requestCert = requestSocket.getPeerCertificate(true)
+        })
     })
     req.on('error', error => {
         console.error(error)
-        if (requestSocket != null) {
+        if (requestCert != null) {
+            saveCertificateChain(requestCert)
+        }
+        else if (requestSocket != null) {
             saveCertificateChain(requestSocket.getPeerCertificate(true))
         }
     })
@@ -86,7 +96,9 @@ else {
             throw new Error(`Proxy returns code: ${res.statusCode}`)
         }
 
-        https.get({
+        let requestSocket
+        let requestCert
+        const req = https.request({
             host: hostname,
             port: port,
             socket: socket,
@@ -95,33 +107,36 @@ else {
             headers: {
                 'User-Agent': 'GitHubActionsRunnerCheck/1.0',
                 'Authorization': `token ${pat}`
-            }
-        }, (res) => {
-            let cert = res.socket.getPeerCertificate(true)
-            let certPEM = ''
-            let fingerprints = {}
-            while (cert != null && fingerprints[cert.fingerprint] != '1') {
-                fingerprints[cert.fingerprint] = '1'
-                certPEM = certPEM + '-----BEGIN CERTIFICATE-----\n'
-                let certEncoded = cert.raw.toString('base64')
-                for (let i = 0; i < certEncoded.length; i++) {
-                    certPEM = certPEM + certEncoded[i]
-                    if (i != certEncoded.length - 1 && (i + 1) % 64 == 0) {
-                        certPEM = certPEM + '\n'
-                    }
-                }
-                certPEM = certPEM + '\n-----END CERTIFICATE-----\n'
-                cert = cert.issuerCertificate
-            }
-            console.log(certPEM)
-            fs.writeFileSync('./download_ca_cert.pem', certPEM)
+            },
+        }, res => {
+            saveCertificateChain(res.socket.getPeerCertificate(true))
             console.log(`statusCode: ${res.statusCode}`)
             console.log(`headers: ${JSON.stringify(res.headers)}`)
             res.on('data', d => {
                 process.stdout.write(d)
             })
         })
-    }).on('error', (err) => {
+
+        req.on('socket', tlsSocket => {
+            requestSocket = tlsSocket
+            requestSocket.on('secureConnect', () => {
+                requestCert = requestSocket.getPeerCertificate(true)
+            })
+            requestSocket.on('error', () => {
+                requestCert = requestSocket.getPeerCertificate(true)
+            })
+        })
+        req.on('error', err => {
+            console.error('error', err)
+            if (requestCert != null) {
+                saveCertificateChain(requestCert)
+            }
+            else if (requestSocket != null) {
+                saveCertificateChain(requestSocket.getPeerCertificate(true))
+            }
+        })
+        req.end()
+    }).on('error', err => {
         console.error('error', err)
     }).end()
 }
