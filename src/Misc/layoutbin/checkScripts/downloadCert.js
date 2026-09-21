@@ -34,6 +34,19 @@ function saveCertificateChain(cert) {
     fs.writeFileSync('./download_ca_cert.pem', certPEM)
 }
 
+function getPeerCertificateSafely(socket) {
+    if (socket == null) {
+        return null
+    }
+
+    try {
+        return socket.getPeerCertificate(true)
+    }
+    catch (err) {
+        return null
+    }
+}
+
 if (proxyHost === '') {
     let requestSocket
     let requestCert
@@ -58,10 +71,10 @@ if (proxyHost === '') {
     req.on('socket', socket => {
         requestSocket = socket
         requestSocket.on('secureConnect', () => {
-            requestCert = requestSocket.getPeerCertificate(true)
+            requestCert = getPeerCertificateSafely(requestSocket)
         })
         requestSocket.on('error', () => {
-            requestCert = requestSocket.getPeerCertificate(true)
+            requestCert = getPeerCertificateSafely(requestSocket)
         })
     })
     req.on('error', error => {
@@ -70,7 +83,7 @@ if (proxyHost === '') {
             saveCertificateChain(requestCert)
         }
         else if (requestSocket != null) {
-            saveCertificateChain(requestSocket.getPeerCertificate(true))
+            saveCertificateChain(getPeerCertificateSafely(requestSocket))
         }
     })
     req.end()
@@ -120,10 +133,10 @@ else {
         req.on('socket', tlsSocket => {
             requestSocket = tlsSocket
             requestSocket.on('secureConnect', () => {
-                requestCert = requestSocket.getPeerCertificate(true)
+                requestCert = getPeerCertificateSafely(requestSocket)
             })
             requestSocket.on('error', () => {
-                requestCert = requestSocket.getPeerCertificate(true)
+                requestCert = getPeerCertificateSafely(requestSocket)
             })
         })
         req.on('error', err => {
@@ -132,7 +145,7 @@ else {
                 saveCertificateChain(requestCert)
             }
             else if (requestSocket != null) {
-                saveCertificateChain(requestSocket.getPeerCertificate(true))
+                saveCertificateChain(getPeerCertificateSafely(requestSocket))
             }
         })
         req.end()
