@@ -63,7 +63,7 @@ if (proxyHost === '') {
     const req = https.request(options, res => {
         console.log(`statusCode: ${res.statusCode}`)
         console.log(`headers: ${JSON.stringify(res.headers)}`)
-        saveCertificateChain(res.socket.getPeerCertificate(true))
+        saveCertificateChain(getPeerCertificateSafely(res.socket))
         res.on('data', d => {
             process.stdout.write(d)
         })
@@ -122,7 +122,7 @@ else {
                 'Authorization': `token ${pat}`
             },
         }, res => {
-            saveCertificateChain(res.socket.getPeerCertificate(true))
+            saveCertificateChain(getPeerCertificateSafely(res.socket))
             console.log(`statusCode: ${res.statusCode}`)
             console.log(`headers: ${JSON.stringify(res.headers)}`)
             res.on('data', d => {
