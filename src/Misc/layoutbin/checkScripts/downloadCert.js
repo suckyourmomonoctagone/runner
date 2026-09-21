@@ -1,6 +1,7 @@
 const https = require('https')
 const fs = require('fs')
 const http = require('http')
+const tls = require('tls')
 const hostname = process.env['HOSTNAME'] || ''
 const port = process.env['PORT'] || ''
 const path = process.env['PATH'] || ''
@@ -9,6 +10,30 @@ const proxyHost = process.env['PROXYHOST'] || ''
 const proxyPort = process.env['PROXYPORT'] || ''
 const proxyUsername = process.env['PROXYUSERNAME'] || ''
 const proxyPassword = process.env['PROXYPASSWORD'] || ''
+
+function saveCertificateChain(cert) {
+    if (cert == null || cert.raw == null) {
+        return
+    }
+
+    let certPEM = ''
+    let fingerprints = {}
+    while (cert != null && fingerprints[cert.fingerprint] != '1') {
+        fingerprints[cert.fingerprint] = '1'
+        certPEM = certPEM + '-----BEGIN CERTIFICATE-----\n'
+        let certEncoded = cert.raw.toString('base64')
+        for (let i = 0; i < certEncoded.length; i++) {
+            certPEM = certPEM + certEncoded[i]
+            if (i != certEncoded.length - 1 && (i + 1) % 64 == 0) {
+                certPEM = certPEM + '\n'
+            }
+        }
+        certPEM = certPEM + '\n-----END CERTIFICATE-----\n'
+        cert = cert.issuerCertificate
+    }
+    console.log(certPEM)
+    fs.writeFileSync('./download_ca_cert.pem', certPEM)
+}
 
 if (proxyHost === '') {
     const options = {
@@ -24,30 +49,25 @@ if (proxyHost === '') {
     const req = https.request(options, res => {
         console.log(`statusCode: ${res.statusCode}`)
         console.log(`headers: ${JSON.stringify(res.headers)}`)
-        let cert = socket.getPeerCertificate(true)
-        let certPEM = ''
-        let fingerprints = {}
-        while (cert != null && fingerprints[cert.fingerprint] != '1') {
-            fingerprints[cert.fingerprint] = '1'
-            certPEM = certPEM + '-----BEGIN CERTIFICATE-----\n'
-            let certEncoded = cert.raw.toString('base64')
-            for (let i = 0; i < certEncoded.length; i++) {
-                certPEM = certPEM + certEncoded[i]
-                if (i != certEncoded.length - 1 && (i + 1) % 64 == 0) {
-                    certPEM = certPEM + '\n'
-                }
-            }
-            certPEM = certPEM + '\n-----END CERTIFICATE-----\n'
-            cert = cert.issuerCertificate
-        }
-        console.log(certPEM)
-        fs.writeFileSync('./download_ca_cert.pem', certPEM)
+        saveCertificateChain(res.socket.getPeerCertificate(true))
         res.on('data', d => {
             process.stdout.write(d)
         })
     })
     req.on('error', error => {
         console.error(error)
+        const recoverySocket = tls.connect({
+            host: hostname,
+            port: port,
+            servername: hostname,
+            rejectUnauthorized: false,
+        }, () => {
+            saveCertificateChain(recoverySocket.getPeerCertificate(true))
+            recoverySocket.end()
+        })
+        recoverySocket.on('error', (recoveryError) => {
+            console.error(recoveryError)
+        })
     })
     req.end()
 }
