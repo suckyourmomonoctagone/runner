@@ -52,6 +52,14 @@ function trackSocketCertificate(socket, saveCert) {
         return
     }
 
+    if (socket.authorized !== undefined) {
+        const cert = getPeerCertificateSafely(socket)
+        if (cert != null && cert.raw != null) {
+            saveCert(cert)
+            return
+        }
+    }
+
     socket.once('secureConnect', () => {
         saveCert(getPeerCertificateSafely(socket))
     })
