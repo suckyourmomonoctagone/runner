@@ -52,10 +52,10 @@ function trackSocketCertificate(socket, saveCert) {
         return
     }
 
-    socket.on('secureConnect', () => {
+    socket.once('secureConnect', () => {
         saveCert(getPeerCertificateSafely(socket))
     })
-    socket.on('error', () => {
+    socket.once('error', () => {
         saveCert(getPeerCertificateSafely(socket))
     })
 }
