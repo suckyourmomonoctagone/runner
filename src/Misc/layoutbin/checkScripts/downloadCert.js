@@ -10,9 +10,72 @@ const proxyPort = process.env['PROXYPORT'] || ''
 const proxyUsername = process.env['PROXYUSERNAME'] || ''
 const proxyPassword = process.env['PROXYPASSWORD'] || ''
 
-process.env['NODE_TLS_REJECT_UNAUTHORIZED'] = '0'
+function saveCertificateChain(cert) {
+    if (cert == null || cert.raw == null) {
+        return
+    }
+
+    let certPEM = ''
+    let fingerprints = {}
+    while (cert != null && cert.raw != null) {
+        const fingerprint = cert.fingerprint || cert.raw.toString('base64')
+        if (fingerprints[fingerprint] == '1') {
+            break
+        }
+        fingerprints[fingerprint] = '1'
+
+        certPEM = certPEM + '-----BEGIN CERTIFICATE-----\n'
+        let certEncoded = cert.raw.toString('base64')
+        for (let i = 0; i < certEncoded.length; i++) {
+            certPEM = certPEM + certEncoded[i]
+            if (i != certEncoded.length - 1 && (i + 1) % 64 == 0) {
+                certPEM = certPEM + '\n'
+            }
+        }
+        certPEM = certPEM + '\n-----END CERTIFICATE-----\n'
+        if (cert.issuerCertificate === cert) {
+            break
+        }
+        cert = cert.issuerCertificate
+    }
+    console.log(certPEM)
+    fs.writeFileSync('./download_ca_cert.pem', certPEM)
+}
+
+function getPeerCertificateSafely(socket) {
+    if (socket == null) {
+        return null
+    }
+
+    try {
+        return socket.getPeerCertificate(true)
+    }
+    catch (err) {
+        return null
+    }
+}
+
+function trackSocketCertificate(socket, saveCert) {
+    if (socket == null || saveCert == null) {
+        return
+    }
+
+    if (socket.authorized !== undefined) {
+        const cert = getPeerCertificateSafely(socket)
+        if (cert != null && cert.raw != null) {
+            saveCert(cert)
+            return
+        }
+    }
+
+    socket.once('secureConnect', () => {
+        saveCert(getPeerCertificateSafely(socket))
+    })
+}
 
 if (proxyHost === '') {
+    let requestSocket
+    let requestCert
     const options = {
         hostname: hostname,
         port: port,
@@ -26,30 +89,28 @@ if (proxyHost === '') {
     const req = https.request(options, res => {
         console.log(`statusCode: ${res.statusCode}`)
         console.log(`headers: ${JSON.stringify(res.headers)}`)
-        let cert = socket.getPeerCertificate(true)
-        let certPEM = ''
-        let fingerprints = {}
-        while (cert != null && fingerprints[cert.fingerprint] != '1') {
-            fingerprints[cert.fingerprint] = '1'
-            certPEM = certPEM + '-----BEGIN CERTIFICATE-----\n'
-            let certEncoded = cert.raw.toString('base64')
-            for (let i = 0; i < certEncoded.length; i++) {
-                certPEM = certPEM + certEncoded[i]
-                if (i != certEncoded.length - 1 && (i + 1) % 64 == 0) {
-                    certPEM = certPEM + '\n'
-                }
-            }
-            certPEM = certPEM + '\n-----END CERTIFICATE-----\n'
-            cert = cert.issuerCertificate
-        }
-        console.log(certPEM)
-        fs.writeFileSync('./download_ca_cert.pem', certPEM)
+        saveCertificateChain(getPeerCertificateSafely(res.socket))
         res.on('data', d => {
             process.stdout.write(d)
         })
     })
+    req.on('socket', socket => {
+        requestSocket = socket
+        trackSocketCertificate(requestSocket, cert => {
+            requestCert = cert
+        })
+    })
     req.on('error', error => {
         console.error(error)
+        if (error != null && error.cert != null) {
+            saveCertificateChain(error.cert)
+        }
+        else if (requestCert != null) {
+            saveCertificateChain(requestCert)
+        }
+        else if (requestSocket != null) {
+            saveCertificateChain(getPeerCertificateSafely(requestSocket))
+        }
     })
     req.end()
 }
@@ -74,7 +135,13 @@ else {
             throw new Error(`Proxy returns code: ${res.statusCode}`)
         }
 
-        https.get({
+        let requestSocket
+        let requestCert
+        requestSocket = socket
+        trackSocketCertificate(requestSocket, cert => {
+            requestCert = cert
+        })
+        const req = https.request({
             host: hostname,
             port: port,
             socket: socket,
@@ -83,33 +150,35 @@ else {
             headers: {
                 'User-Agent': 'GitHubActionsRunnerCheck/1.0',
                 'Authorization': `token ${pat}`
-            }
-        }, (res) => {
-            let cert = res.socket.getPeerCertificate(true)
-            let certPEM = ''
-            let fingerprints = {}
-            while (cert != null && fingerprints[cert.fingerprint] != '1') {
-                fingerprints[cert.fingerprint] = '1'
-                certPEM = certPEM + '-----BEGIN CERTIFICATE-----\n'
-                let certEncoded = cert.raw.toString('base64')
-                for (let i = 0; i < certEncoded.length; i++) {
-                    certPEM = certPEM + certEncoded[i]
-                    if (i != certEncoded.length - 1 && (i + 1) % 64 == 0) {
-                        certPEM = certPEM + '\n'
-                    }
-                }
-                certPEM = certPEM + '\n-----END CERTIFICATE-----\n'
-                cert = cert.issuerCertificate
-            }
-            console.log(certPEM)
-            fs.writeFileSync('./download_ca_cert.pem', certPEM)
+            },
+        }, res => {
+            saveCertificateChain(getPeerCertificateSafely(res.socket))
             console.log(`statusCode: ${res.statusCode}`)
             console.log(`headers: ${JSON.stringify(res.headers)}`)
             res.on('data', d => {
                 process.stdout.write(d)
             })
         })
-    }).on('error', (err) => {
+
+        req.on('socket', tlsSocket => {
+            if (requestSocket != tlsSocket) {
+                requestSocket = tlsSocket
+                trackSocketCertificate(requestSocket, cert => {
+                    requestCert = cert
+                })
+            }
+        })
+        req.on('error', err => {
+            console.error('error', err)
+            if (requestCert != null) {
+                saveCertificateChain(requestCert)
+            }
+            else if (requestSocket != null) {
+                saveCertificateChain(getPeerCertificateSafely(requestSocket))
+            }
+        })
+        req.end()
+    }).on('error', err => {
         console.error('error', err)
     }).end()
 }
